@@ -165,21 +165,22 @@ const KubernetesRunner = {
         name: podName,
         namespace: SANDBOX_NAMESPACE
       })
-      const pod = response
+      // The response contains the pod data directly in newer client versions
+      const pod = response.body || response
 
       // Check if pod is in running state
-      if (pod.status.phase === 'Running') {
+      if (pod.status?.phase === 'Running') {
         return pod
       }
 
       // If pod is not running, delete it and return null
-      if (pod.status.phase === 'Failed' || pod.status.phase === 'Succeeded') {
+      if (pod.status?.phase === 'Failed' || pod.status?.phase === 'Succeeded') {
         await KubernetesRunner._deletePod(podName)
       }
 
       return null
     } catch (error) {
-      if (error.statusCode === 404) {
+      if (error.statusCode === 404 || error.response?.statusCode === 404) {
         return null
       }
       throw error
@@ -199,7 +200,8 @@ const KubernetesRunner = {
       body: podSpec
     })
     
-    return response
+    // Return the pod data (handle both old and new client API)
+    return response.body || response
   },
 
   /**
@@ -208,7 +210,7 @@ const KubernetesRunner = {
   _buildPodSpec(podName, projectId, image, environment, compileGroup) {
     // Build environment variables
     const envVars = [
-      { name: 'HOME', value: '/tmp' },
+      { name: 'HOME', value: '/home/texlive' },
       { name: 'CLSI', value: '1' },
     ]
 
@@ -284,7 +286,8 @@ const KubernetesRunner = {
           },
           securityContext: {
             allowPrivilegeEscalation: false,
-            readOnlyRootFilesystem: false,
+            // Root filesystem can be read-only since we mount /compile and /tmp as writable volumes
+            readOnlyRootFilesystem: true,
             capabilities: {
               drop: ['ALL']
             }
@@ -297,6 +300,11 @@ const KubernetesRunner = {
             {
               name: 'tmp',
               mountPath: '/tmp'
+            },
+            {
+              // TexLive needs a writable home directory for caching
+              name: 'home',
+              mountPath: '/home/texlive'
             }
           ]
         }],
@@ -309,6 +317,12 @@ const KubernetesRunner = {
             name: 'tmp',
             emptyDir: {
               sizeLimit: '100Mi'
+            }
+          },
+          {
+            name: 'home',
+            emptyDir: {
+              sizeLimit: '50Mi'
             }
           }
         ],
@@ -331,9 +345,10 @@ const KubernetesRunner = {
           name: podName,
           namespace: SANDBOX_NAMESPACE
         })
-        const pod = response
+        // Handle both old and new client API
+        const pod = response.body || response
 
-        if (pod.status.phase === 'Running') {
+        if (pod.status?.phase === 'Running') {
           // Check if container is ready
           const containerStatus = pod.status.containerStatuses?.find(cs => cs.name === 'compile')
           if (containerStatus?.ready) {
@@ -342,11 +357,11 @@ const KubernetesRunner = {
           }
         }
 
-        if (pod.status.phase === 'Failed') {
+        if (pod.status?.phase === 'Failed') {
           throw new Error(`Pod ${podName} failed to start`)
         }
       } catch (error) {
-        if (error.statusCode !== 404) {
+        if (error.statusCode !== 404 && error.response?.statusCode !== 404) {
           throw error
         }
       }
@@ -380,28 +395,123 @@ const KubernetesRunner = {
   },
 
   /**
+   * Escape shell argument to prevent command injection
+   */
+  _escapeShellArg(arg) {
+    // Replace single quotes with escaped single quotes
+    // Then wrap in single quotes for shell safety
+    return "'" + arg.replace(/'/g, "'\\''") + "'"
+  },
+
+  /**
+   * Validate path to prevent path traversal attacks
+   */
+  _validatePath(path, baseDir) {
+    const normalizedPath = Path.normalize(path)
+    // Ensure path doesn't escape the base directory
+    if (!normalizedPath.startsWith(baseDir)) {
+      throw new Error(`Invalid path: ${path}`)
+    }
+    // Prevent common malicious patterns
+    if (normalizedPath.includes('..') || normalizedPath.includes('\0')) {
+      throw new Error(`Invalid characters in path: ${path}`)
+    }
+    return normalizedPath
+  },
+
+  /**
    * Copy a single file to pod
    */
   async _copyFileToPod(podName, localPath, remotePath) {
+    // Validate the remote path to prevent path traversal
+    KubernetesRunner._validatePath(remotePath, '/compile')
+    
     const content = await fs.readFile(localPath)
     const base64Content = content.toString('base64')
     
-    // Use exec to write file
-    const command = ['sh', '-c', `echo "${base64Content}" | base64 -d > ${remotePath}`]
+    // Escape the remote path to prevent command injection
+    const escapedPath = KubernetesRunner._escapeShellArg(remotePath)
     
-    await KubernetesRunner._execInPod(podName, command)
+    // Use exec to write file with properly escaped arguments
+    const command = ['sh', '-c', `base64 -d > ${escapedPath}`]
+    
+    // Pass base64 content via a safer method - write to stdin
+    await KubernetesRunner._execInPodWithInput(podName, command, base64Content)
+  },
+
+  /**
+   * Execute command in pod with stdin input
+   */
+  async _execInPodWithInput(podName, command, input) {
+    return new Promise((resolve, reject) => {
+      let stdout = ''
+      let stderr = ''
+
+      const execInstance = new k8s.Exec(kc)
+      
+      execInstance.exec(
+        SANDBOX_NAMESPACE,
+        podName,
+        'compile',
+        command,
+        // Streams
+        {
+          write: (data) => { stdout += data },
+        },
+        {
+          write: (data) => { stderr += data },
+        },
+        // stdin stream
+        {
+          readable: true,
+          read() {
+            this.push(input)
+            this.push(null)
+          }
+        },
+        false, // tty
+        (status) => {
+          if (status.status === 'Success') {
+            resolve({ stdout, stderr, exitCode: 0 })
+          } else {
+            const exitCode = status.details?.causes?.find(c => c.reason === 'ExitCode')?.message
+            if (exitCode === '0' || !exitCode) {
+              resolve({ stdout, stderr, exitCode: parseInt(exitCode, 10) || 0 })
+            } else {
+              const err = new Error(`Command failed with exit code ${exitCode}`)
+              err.exitCode = parseInt(exitCode, 10)
+              err.stdout = stdout
+              err.stderr = stderr
+              reject(err)
+            }
+          }
+        }
+      ).catch(reject)
+    })
   },
 
   /**
    * Copy directory to pod
    */
   async _copyDirToPod(podName, localDir, remoteDir) {
+    // Validate the remote directory path
+    KubernetesRunner._validatePath(remoteDir, '/compile')
+    
+    // Escape the remote dir for the mkdir command
+    const escapedDir = KubernetesRunner._escapeShellArg(remoteDir)
+    
     // Create directory
     await KubernetesRunner._execInPod(podName, ['mkdir', '-p', remoteDir])
     
     const files = await fs.readdir(localDir, { withFileTypes: true })
     
     for (const file of files) {
+      // Validate filename to prevent malicious filenames
+      if (file.name.includes('/') || file.name.includes('\0')) {
+        logger.warn({ fileName: file.name }, 'skipping file with invalid name')
+        continue
+      }
+      
       const localPath = Path.join(localDir, file.name)
       const remotePath = `${remoteDir}/${file.name}`
       
