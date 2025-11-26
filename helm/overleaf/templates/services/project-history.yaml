@@ -1,0 +1,19 @@
+{{- if .Values.services.projectHistory.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-project-history
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: project-history
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.projectHistory.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: project-history
+{{- end }}

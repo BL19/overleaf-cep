@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - ingress.yaml
+
+namePrefix: prod-
+
+namespace: overleaf-prod
+
+configMapGenerator:
+  - name: overleaf-config
+    behavior: merge
+    literals:
+      - OVERLEAF_SITE_URL=https://overleaf.example.com
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+
+replicas:
+  - name: overleaf-web
+    count: 2
+  - name: overleaf-real-time
+    count: 2
+  - name: overleaf-clsi
+    count: 3
+  - name: overleaf-document-updater
+    count: 2

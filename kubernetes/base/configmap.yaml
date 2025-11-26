@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: overleaf-config
+  namespace: overleaf
+data:
+  # Site configuration
+  OVERLEAF_SITE_URL: "http://overleaf.local"
+  OVERLEAF_APP_NAME: "Overleaf Community Edition"
+  OVERLEAF_ADMIN_EMAIL: "admin@example.com"
+  
+  # Feature flags
+  OVERLEAF_ALLOW_ANONYMOUS_READ_AND_WRITE_SHARING: "false"
+  EMAIL_CONFIRMATION_DISABLED: "true"
+  ENABLE_PDF_CACHING: "false"
+  
+  # Compile settings
+  COMPILE_TIMEOUT: "180"
+  
+  # Filestore backend
+  OVERLEAF_FILESTORE_BACKEND: "fs"
+  
+  # Linked file types
+  ENABLED_LINKED_FILE_TYPES: "project_file,project_output_file"
+  
+  # Enable image conversions for thumbnails
+  ENABLE_CONVERSIONS: "true"
+  
+  # Service discovery
+  WEB_HOST: "overleaf-web"
+  WEB_PORT: "3000"
+  WEB_API_HOST: "overleaf-web"
+  WEB_API_PORT: "3000"
+  REALTIME_HOST: "overleaf-real-time"
+  DOCUMENT_UPDATER_HOST: "overleaf-document-updater"
+  DOCUPDATER_HOST: "overleaf-document-updater"
+  CLSI_HOST: "overleaf-clsi"
+  FILESTORE_HOST: "overleaf-filestore"
+  DOCSTORE_HOST: "overleaf-docstore"
+  CHAT_HOST: "overleaf-chat"
+  CONTACTS_HOST: "overleaf-contacts"
+  NOTIFICATIONS_HOST: "overleaf-notifications"
+  PROJECT_HISTORY_HOST: "overleaf-project-history"
+  REFERENCES_HOST: "overleaf-references"
+  V1_HISTORY_HOST: "overleaf-history-v1"
+  LINKED_URL_PROXY_HOST: "overleaf-linked-url-proxy"
+  
+  # Redis configuration (update for your Redis instance)
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  
+  # Node.js configuration
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"

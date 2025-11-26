@@ -1,0 +1,19 @@
+{{- if .Values.services.contacts.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-contacts
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: contacts
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.contacts.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: contacts
+{{- end }}

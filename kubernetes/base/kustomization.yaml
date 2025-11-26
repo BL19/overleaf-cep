@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: overleaf
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - pvc.yaml
+  - deployments/web.yaml
+  - deployments/real-time.yaml
+  - deployments/document-updater.yaml
+  - deployments/clsi.yaml
+  - deployments/filestore.yaml
+  - deployments/docstore.yaml
+  - deployments/chat.yaml
+  - deployments/contacts.yaml
+  - deployments/notifications.yaml
+  - deployments/project-history.yaml
+  - deployments/references.yaml
+  - deployments/history-v1.yaml
+  - deployments/linked-url-proxy.yaml
+  - services/web.yaml
+  - services/real-time.yaml
+  - services/document-updater.yaml
+  - services/clsi.yaml
+  - services/filestore.yaml
+  - services/docstore.yaml
+  - services/chat.yaml
+  - services/contacts.yaml
+  - services/notifications.yaml
+  - services/project-history.yaml
+  - services/references.yaml
+  - services/history-v1.yaml
+  - services/linked-url-proxy.yaml
+
+commonLabels:
+  app.kubernetes.io/name: overleaf
+  app.kubernetes.io/part-of: overleaf
+
+configMapGenerator:
+  - name: overleaf-env
+    behavior: merge
+    literals:
+      - NODE_ENV=production
+      - LOG_LEVEL=info

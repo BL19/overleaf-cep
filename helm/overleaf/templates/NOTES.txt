@@ -1,0 +1,95 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named: {{ .Release.Name }}
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+{{- if .Values.ingress.enabled }}
+
+Access Overleaf at:
+{{- range $host := .Values.ingress.hosts }}
+  {{- range .paths }}
+  {{- if eq .service "web" }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host.host }}{{ .path }}
+  {{- end }}
+  {{- end }}
+{{- end }}
+
+{{- else }}
+
+To access Overleaf, you can use port-forwarding:
+
+  $ kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "overleaf.fullname" . }}-web 8080:{{ .Values.services.web.port }}
+
+Then open http://localhost:8080 in your browser.
+
+{{- end }}
+
+After deployment, you may need to create an admin user:
+
+1. Get a shell in the web pod:
+   $ kubectl exec -it deployment/{{ include "overleaf.fullname" . }}-web -n {{ .Release.Namespace }} -- /bin/bash
+
+2. Create an admin user (inside the pod):
+   $ cd /overleaf/services/web && node modules/server-ce-scripts/scripts/create-user --admin --email=admin@example.com
+
+{{- if not .Values.mongodb.enabled }}
+{{- if not .Values.mongodb.external.enabled }}
+
+WARNING: MongoDB is not configured. Please enable either the built-in MongoDB or configure an external MongoDB instance.
+{{- end }}
+{{- end }}
+
+{{- if not .Values.redis.enabled }}
+{{- if not .Values.redis.external.enabled }}
+
+WARNING: Redis is not configured. Please enable either the built-in Redis or configure an external Redis instance.
+{{- end }}
+{{- end }}
+
+Services deployed:
+{{- if .Values.services.web.enabled }}
+  - web (port {{ .Values.services.web.port }})
+{{- end }}
+{{- if .Values.services.realTime.enabled }}
+  - real-time (port {{ .Values.services.realTime.port }})
+{{- end }}
+{{- if .Values.services.documentUpdater.enabled }}
+  - document-updater (port {{ .Values.services.documentUpdater.port }})
+{{- end }}
+{{- if .Values.services.clsi.enabled }}
+  - clsi (port {{ .Values.services.clsi.port }})
+{{- end }}
+{{- if .Values.services.filestore.enabled }}
+  - filestore (port {{ .Values.services.filestore.port }})
+{{- end }}
+{{- if .Values.services.docstore.enabled }}
+  - docstore (port {{ .Values.services.docstore.port }})
+{{- end }}
+{{- if .Values.services.chat.enabled }}
+  - chat (port {{ .Values.services.chat.port }})
+{{- end }}
+{{- if .Values.services.contacts.enabled }}
+  - contacts (port {{ .Values.services.contacts.port }})
+{{- end }}
+{{- if .Values.services.notifications.enabled }}
+  - notifications (port {{ .Values.services.notifications.port }})
+{{- end }}
+{{- if .Values.services.projectHistory.enabled }}
+  - project-history (port {{ .Values.services.projectHistory.port }})
+{{- end }}
+{{- if .Values.services.references.enabled }}
+  - references (port {{ .Values.services.references.port }})
+{{- end }}
+{{- if .Values.services.historyV1.enabled }}
+  - history-v1 (port {{ .Values.services.historyV1.port }})
+{{- end }}
+{{- if .Values.services.linkedUrlProxy.enabled }}
+  - linked-url-proxy (port {{ .Values.services.linkedUrlProxy.port }})
+{{- end }}
+
+For more information on configuring Overleaf, visit:
+  https://github.com/overleaf/overleaf/wiki

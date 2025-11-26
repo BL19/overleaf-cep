@@ -1,0 +1,265 @@
+# Production values example for Overleaf Helm Chart
+# This file contains recommended settings for a production deployment
+
+# Overleaf configuration
+overleaf:
+  # Your public site URL (required for emails and links)
+  siteUrl: "https://overleaf.example.com"
+  
+  # Application name shown in the UI
+  appName: "My Overleaf Instance"
+  
+  # Admin contact email
+  adminEmail: "admin@example.com"
+  
+  # Session secret - IMPORTANT: Generate a unique secret for production!
+  # You can generate one with: openssl rand -hex 32
+  sessionSecret: ""  # Set via --set or external secret
+  
+  # LaTeX compile timeout (seconds)
+  compileTimeout: 240
+  
+  # Enable PDF caching for better performance
+  enablePdfCaching: true
+  
+  # Email configuration
+  email:
+    enabled: true
+    fromAddress: "noreply@example.com"
+    replyTo: "support@example.com"
+    smtp:
+      host: "smtp.example.com"
+      port: 587
+      secure: false
+      user: "smtp-user"
+      password: ""  # Set via --set or external secret
+
+# Use external MongoDB (recommended for production)
+mongodb:
+  enabled: false
+  external:
+    enabled: true
+    url: "mongodb://user:password@mongodb-0.mongodb.svc:27017,mongodb-1.mongodb.svc:27017,mongodb-2.mongodb.svc:27017/sharelatex?replicaSet=rs0&authSource=admin"
+
+# Use external Redis (recommended for production)
+redis:
+  enabled: false
+  external:
+    enabled: true
+    host: "redis-master.redis.svc"
+    port: 6379
+    password: ""  # Set via --set or external secret
+
+# Persistence configuration
+persistence:
+  enabled: true
+  storageClass: "fast-ssd"  # Use appropriate storage class for your cluster
+  accessModes:
+    - ReadWriteMany  # Required if scaling web/filestore services
+  data:
+    size: 100Gi
+  compiles:
+    size: 50Gi
+  cache:
+    size: 20Gi
+  uploads:
+    size: 50Gi
+
+# Ingress configuration for production
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "overleaf-real-time"
+  hosts:
+    - host: overleaf.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: web
+        - path: /socket.io
+          pathType: Prefix
+          service: real-time
+  tls:
+    - secretName: overleaf-tls
+      hosts:
+        - overleaf.example.com
+
+# Service configurations for production
+services:
+  web:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+  
+  realTime:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  documentUpdater:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  clsi:
+    enabled: true
+    replicaCount: 3
+    resources:
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+    texLiveImage: "quay.io/sharelatex/texlive-full:2023.1"
+  
+  filestore:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  docstore:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  chat:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  contacts:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  notifications:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  projectHistory:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  references:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  historyV1:
+    enabled: true
+    replicaCount: 2
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+  
+  linkedUrlProxy:
+    enabled: true
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+
+# Health check configuration
+healthCheck:
+  enabled: true
+  livenessProbe:
+    initialDelaySeconds: 60
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 6
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+# Pod disruption budget for high availability
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  readOnlyRootFilesystem: false
+
+podSecurityContext:
+  fsGroup: 1000

@@ -1,0 +1,19 @@
+{{- if .Values.services.docstore.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-docstore
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: docstore
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.docstore.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: docstore
+{{- end }}
