@@ -90,6 +90,30 @@ function parseMultipartBuffer(buffer, boundary) {
 }
 
 /**
+ * Validate file path to prevent path traversal attacks
+ * @param {string} filename - The filename or relative path
+ * @returns {string} - The safe, resolved absolute path
+ * @throws {Error} - If path traversal is detected
+ */
+function validatePath(filename) {
+  // Resolve to absolute path
+  const resolvedPath = path.resolve(COMPILE_DIR, filename)
+  
+  // Ensure resolved path is within COMPILE_DIR
+  if (!resolvedPath.startsWith(path.resolve(COMPILE_DIR) + path.sep) && 
+      resolvedPath !== path.resolve(COMPILE_DIR)) {
+    throw new Error('Invalid file path: path traversal detected')
+  }
+  
+  // Additional check for null bytes
+  if (filename.includes('\0')) {
+    throw new Error('Invalid file path: null byte detected')
+  }
+  
+  return resolvedPath
+}
+
+/**
  * Handle file upload - receives files from CLSI
  */
 async function handleUpload(req, res) {
@@ -103,11 +127,8 @@ async function handleUpload(req, res) {
       
       for (const part of parts) {
         if (part.filename) {
-          const filePath = path.join(COMPILE_DIR, part.filename)
           // Validate path to prevent traversal
-          if (!filePath.startsWith(COMPILE_DIR)) {
-            throw new Error('Invalid file path')
-          }
+          const filePath = validatePath(part.filename)
           
           // Create directory if needed
           const dir = path.dirname(filePath)
@@ -129,11 +150,8 @@ async function handleUpload(req, res) {
       
       if (body.files) {
         for (const [filename, content] of Object.entries(body.files)) {
-          const filePath = path.join(COMPILE_DIR, filename)
-          // Validate path
-          if (!path.normalize(filePath).startsWith(COMPILE_DIR)) {
-            throw new Error('Invalid file path')
-          }
+          // Validate path to prevent traversal
+          const filePath = validatePath(filename)
           
           const dir = path.dirname(filePath)
           fs.mkdirSync(dir, { recursive: true })
@@ -174,9 +192,11 @@ async function handleCompile(req, res) {
       throw new Error('Invalid command')
     }
     
-    // Validate working directory
+    // Validate working directory using the same secure method
     const resolvedWorkDir = path.resolve(workingDir)
-    if (!resolvedWorkDir.startsWith(COMPILE_DIR)) {
+    const resolvedCompileDir = path.resolve(COMPILE_DIR)
+    if (!resolvedWorkDir.startsWith(resolvedCompileDir + path.sep) && 
+        resolvedWorkDir !== resolvedCompileDir) {
       throw new Error('Invalid working directory')
     }
     
@@ -272,12 +292,8 @@ async function handleDownload(req, res) {
       throw new Error('No path specified')
     }
     
-    const resolvedPath = path.resolve(COMPILE_DIR, filePath)
-    
-    // Validate path
-    if (!resolvedPath.startsWith(COMPILE_DIR)) {
-      throw new Error('Invalid path')
-    }
+    // Use validatePath for consistent security
+    const resolvedPath = validatePath(filePath)
     
     if (!fs.existsSync(resolvedPath)) {
       res.writeHead(404, { 'Content-Type': 'application/json' })
@@ -318,11 +334,12 @@ async function handleListFiles(req, res) {
     const dirPath = url.searchParams.get('path') || ''
     const extensions = url.searchParams.get('extensions')?.split(',') || []
     
-    const resolvedPath = path.resolve(COMPILE_DIR, dirPath)
-    
-    // Validate path
-    if (!resolvedPath.startsWith(COMPILE_DIR)) {
-      throw new Error('Invalid path')
+    // Use validatePath, but for root dir allow empty path
+    let resolvedPath
+    if (dirPath === '' || dirPath === '.') {
+      resolvedPath = path.resolve(COMPILE_DIR)
+    } else {
+      resolvedPath = validatePath(dirPath)
     }
     
     const files = listFilesRecursive(resolvedPath, extensions)
