@@ -152,8 +152,11 @@ docker push your-registry/overleaf-sandbox:latest
 cd kubernetes/helm
 helm dependency update overleaf
 helm install overleaf ./overleaf -n overleaf \
-  --set sandbox.image=your-registry/overleaf-sandbox:latest
+  --set sandbox.image=your-registry/overleaf-sandbox:latest \
+  --set sandbox.agentSecret=$(openssl rand -hex 32)
 ```
+
+> **Note**: The `sandbox.agentSecret` is used to authenticate communication between CLSI and the sandbox pods. This is important for security on shared VPCs. If not set, a random secret is generated, but it's recommended to set it explicitly for production.
 
 ### 5. Create an admin user
 
@@ -183,11 +186,10 @@ overleaf:
 sandbox:
   enabled: true
   namespace: "overleaf-sandbox"
-  texliveImage: "texlive/texlive:latest"
+  image: "overleaf/sandbox:latest"
+  # IMPORTANT: Set this for security on shared VPCs
+  agentSecret: "your-secure-secret-here"
   podTTLMinutes: 20
-  allowedImages:
-    - "texlive/texlive:latest"
-    - "texlive/texlive:TL2024-historic"
   resources:
     limits:
       cpu: "2"

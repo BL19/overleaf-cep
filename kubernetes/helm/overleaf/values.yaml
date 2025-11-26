@@ -56,6 +56,10 @@ sandbox:
   image: "overleaf/sandbox:latest"
   # Agent port inside sandbox pods
   agentPort: 8080
+  # Shared secret for authenticating CLSI to sandbox-agent communication
+  # IMPORTANT: Set this to a secure random value in production!
+  # If left empty, authentication is disabled (not recommended for shared VPCs)
+  agentSecret: ""
   # Pod TTL in minutes since last recompile
   # Pods stay alive this long after the last compile to allow reuse
   podTTLMinutes: 20

@@ -9,25 +9,65 @@
  * 
  * The agent is designed to be minimal with no external dependencies
  * to keep the sandbox container lightweight.
+ * 
+ * Security: All requests must include a valid Bearer token in the
+ * Authorization header matching the SANDBOX_AGENT_SECRET environment variable.
  */
 
 const http = require('node:http')
 const fs = require('node:fs')
 const path = require('node:path')
 const { spawn } = require('node:child_process')
-const { pipeline } = require('node:stream/promises')
+const crypto = require('node:crypto')
 
 // Configuration
 const PORT = parseInt(process.env.SANDBOX_AGENT_PORT, 10) || 8080
 const COMPILE_DIR = process.env.COMPILE_DIR || '/compile'
 const MAX_OUTPUT_SIZE = parseInt(process.env.MAX_OUTPUT_SIZE, 10) || 10 * 1024 * 1024 // 10MB
 const IDLE_TIMEOUT_MS = parseInt(process.env.IDLE_TIMEOUT_MS, 10) || 20 * 60 * 1000 // 20 minutes
+// Authentication secret - must match the one used by CLSI
+const AGENT_SECRET = process.env.SANDBOX_AGENT_SECRET
 
 // Track last activity for idle timeout
 let lastActivity = Date.now()
 
 function updateActivity() {
   lastActivity = Date.now()
+}
+
+/**
+ * Verify authentication token from Authorization header
+ * Uses constant-time comparison to prevent timing attacks
+ */
+function verifyAuth(req) {
+  if (!AGENT_SECRET) {
+    // If no secret is configured, allow all requests (for development)
+    console.warn('WARNING: SANDBOX_AGENT_SECRET not set, authentication disabled')
+    return true
+  }
+  
+  const authHeader = req.headers['authorization']
+  if (!authHeader) {
+    return false
+  }
+  
+  const match = authHeader.match(/^Bearer\s+(.+)$/i)
+  if (!match) {
+    return false
+  }
+  
+  const token = match[1]
+  
+  // Use constant-time comparison to prevent timing attacks
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(token, 'utf8'),
+      Buffer.from(AGENT_SECRET, 'utf8')
+    )
+  } catch (e) {
+    // Buffers of different lengths will throw
+    return false
+  }
 }
 
 /**
@@ -430,9 +470,21 @@ const server = http.createServer(async (req, res) => {
   console.log(`${req.method} ${url.pathname}`)
   
   try {
+    // Health check endpoint doesn't require auth (for Kubernetes probes)
     if (req.method === 'GET' && url.pathname === '/health') {
       handleHealth(req, res)
-    } else if (req.method === 'POST' && url.pathname === '/upload') {
+      return
+    }
+    
+    // All other endpoints require authentication
+    if (!verifyAuth(req)) {
+      console.warn('Unauthorized request attempt')
+      res.writeHead(401, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Unauthorized' }))
+      return
+    }
+    
+    if (req.method === 'POST' && url.pathname === '/upload') {
       await handleUpload(req, res)
     } else if (req.method === 'POST' && url.pathname === '/compile') {
       await handleCompile(req, res)
@@ -460,6 +512,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`Sandbox agent listening on port ${PORT}`)
   console.log(`Compile directory: ${COMPILE_DIR}`)
   console.log(`Idle timeout: ${IDLE_TIMEOUT_MS / 1000 / 60} minutes`)
+  console.log(`Authentication: ${AGENT_SECRET ? 'enabled' : 'DISABLED (no secret set)'}`)
 })
 
 // Graceful shutdown

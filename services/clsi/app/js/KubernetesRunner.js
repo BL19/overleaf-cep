@@ -13,6 +13,7 @@
  *   - File downloads back to CLSI
  * - Pods stay alive for podTTLMinutes (default 20) after the last compile
  * - Subsequent compiles reuse the same pod (no scheduling overhead)
+ * - Communication is secured with a shared secret token
  */
 
 const { promisify } = require('node:util')
@@ -38,6 +39,8 @@ const POD_TTL_MINUTES = parseInt(process.env.SANDBOX_POD_TTL_MINUTES, 10) || 20
 const POD_TTL_MS = POD_TTL_MINUTES * 60 * 1000
 const SANDBOX_AGENT_PORT = parseInt(process.env.SANDBOX_AGENT_PORT, 10) || 8080
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE || 'overleaf/sandbox:latest'
+// Shared secret for authenticating with sandbox agents
+const SANDBOX_AGENT_SECRET = process.env.SANDBOX_AGENT_SECRET || crypto.randomBytes(32).toString('hex')
 
 // Track active pods and their IP addresses
 const activePods = new Map() // podName -> { ip, lastActivity }
@@ -89,8 +92,9 @@ const KubernetesRunner = {
       return callback(new Error('image not allowed'))
     }
 
-    // Generate unique pod name based on project and user
-    const podName = KubernetesRunner._generatePodName(projectId, directory)
+    // Generate unique pod name based on project ID only
+    // This ensures the same pod is reused for all compiles of the same project
+    const podName = KubernetesRunner._generatePodName(projectId)
     
     logger.debug({ projectId, podName, image, command }, 'running kubernetes compile')
 
@@ -112,11 +116,13 @@ const KubernetesRunner = {
 
   /**
    * Generate a unique pod name for a project
+   * Uses only projectId to ensure the same pod is reused for all compiles
+   * of the same project, enabling efficient pod reuse
    */
-  _generatePodName(projectId, directory) {
-    // Include directory info to handle per-user containers
-    const dirHash = crypto.createHash('md5').update(directory).digest('hex').slice(0, 8)
-    return `compile-${projectId}-${dirHash}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63)
+  _generatePodName(projectId) {
+    // Use only projectId for consistent pod naming across compiles
+    // This ensures the same pod is reused for subsequent compiles of the same project
+    return `compile-${projectId}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 63)
   },
 
   /**
@@ -237,6 +243,8 @@ const KubernetesRunner = {
       { name: 'COMPILE_DIR', value: '/compile' },
       { name: 'SANDBOX_AGENT_PORT', value: String(SANDBOX_AGENT_PORT) },
       { name: 'IDLE_TIMEOUT_MS', value: String(POD_TTL_MS) },
+      // Authentication secret for sandbox agent
+      { name: 'SANDBOX_AGENT_SECRET', value: SANDBOX_AGENT_SECRET },
     ]
 
     // Add custom environment variables
@@ -430,6 +438,7 @@ const KubernetesRunner = {
 
   /**
    * Make an HTTP request to the sandbox agent
+   * Includes authentication token in the Authorization header
    */
   _httpRequest(podIp, path, method, body, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
@@ -440,7 +449,8 @@ const KubernetesRunner = {
         method: method,
         timeout: timeoutMs,
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SANDBOX_AGENT_SECRET}`
         }
       }
 
