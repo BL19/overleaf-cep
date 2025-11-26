@@ -35,13 +35,7 @@ resources:
   - services/history-v1.yaml
   - services/linked-url-proxy.yaml
 
-commonLabels:
-  app.kubernetes.io/name: overleaf
-  app.kubernetes.io/part-of: overleaf
-
-configMapGenerator:
-  - name: overleaf-env
-    behavior: merge
-    literals:
-      - NODE_ENV=production
-      - LOG_LEVEL=info
+labels:
+  - pairs:
+      app.kubernetes.io/name: overleaf
+      app.kubernetes.io/part-of: overleaf

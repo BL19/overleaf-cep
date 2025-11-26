@@ -9,13 +9,20 @@ namePrefix: prod-
 
 namespace: overleaf-prod
 
-configMapGenerator:
-  - name: overleaf-config
-    behavior: merge
-    literals:
-      - OVERLEAF_SITE_URL=https://overleaf.example.com
-      - NODE_ENV=production
-      - LOG_LEVEL=info
+patches:
+  - patch: |-
+      - op: replace
+        path: /data/OVERLEAF_SITE_URL
+        value: "https://overleaf.example.com"
+      - op: replace
+        path: /data/NODE_ENV
+        value: "production"
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: "info"
+    target:
+      kind: ConfigMap
+      name: overleaf-config
 
 replicas:
   - name: overleaf-web

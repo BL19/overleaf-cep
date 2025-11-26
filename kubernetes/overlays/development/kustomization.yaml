@@ -15,11 +15,16 @@ patches:
         value: 1
     target:
       kind: Deployment
-
-configMapGenerator:
-  - name: overleaf-config
-    behavior: merge
-    literals:
-      - OVERLEAF_SITE_URL=http://localhost:8080
-      - NODE_ENV=development
-      - LOG_LEVEL=debug
+  - patch: |-
+      - op: replace
+        path: /data/OVERLEAF_SITE_URL
+        value: "http://localhost:8080"
+      - op: replace
+        path: /data/NODE_ENV
+        value: "development"
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: "debug"
+    target:
+      kind: ConfigMap
+      name: overleaf-config
