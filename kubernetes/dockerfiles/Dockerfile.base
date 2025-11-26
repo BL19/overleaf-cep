@@ -1,0 +1,20 @@
+# Overleaf Microservice Base Image
+# This Dockerfile creates a base image with Node.js and common dependencies
+
+FROM node:22.18.0-slim AS base
+
+# Install common dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create overleaf user
+RUN useradd -m -s /bin/bash overleaf
+
+WORKDIR /overleaf
+
+# Set common environment variables
+ENV NODE_ENV=production
+ENV LOG_LEVEL=info

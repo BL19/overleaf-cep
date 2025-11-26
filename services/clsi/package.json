@@ -17,6 +17,7 @@
     "types:check": "tsc --noEmit"
   },
   "dependencies": {
+    "@kubernetes/client-node": "^1.0.0",
     "@overleaf/fetch-utils": "*",
     "@overleaf/logger": "*",
     "@overleaf/metrics": "*",

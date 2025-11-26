@@ -1,0 +1,103 @@
+{{- if .Values.historyV1.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "overleaf.fullname" . }}-history-v1
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: history-v1
+spec:
+  replicas: {{ .Values.historyV1.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "overleaf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: history-v1
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+      labels:
+        {{- include "overleaf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: history-v1
+    spec:
+      {{- include "overleaf.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "overleaf.serviceAccountName" . }}
+      containers:
+        - name: history-v1
+          image: {{ include "overleaf.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node"]
+          args: ["--expose-gc", "/overleaf/services/history-v1/app.js"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.historyV1.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "overleaf.fullname" . }}-config
+            - secretRef:
+                name: {{ include "overleaf.fullname" . }}-secrets
+          env:
+            - name: LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.historyV1.port | quote }}
+            - name: NODE_CONFIG_DIR
+              value: "/overleaf/services/history-v1/config"
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.historyV1.resources | nindent 12 }}
+          volumeMounts:
+            - name: history
+              mountPath: /var/lib/overleaf/data/history
+      volumes:
+        - name: history
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "overleaf.fullname" . }}-history
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.historyV1.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.historyV1.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.historyV1.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-history-v1
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: history-v1
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.historyV1.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: history-v1
+{{- end }}

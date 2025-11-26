@@ -1,0 +1,136 @@
+{{- if .Values.clsi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "overleaf.fullname" . }}-clsi
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clsi
+spec:
+  replicas: {{ .Values.clsi.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "overleaf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: clsi
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets.yaml") . | sha256sum }}
+      labels:
+        {{- include "overleaf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: clsi
+    spec:
+      {{- include "overleaf.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "overleaf.serviceAccountName" . }}
+      containers:
+        - name: clsi
+          image: {{ include "overleaf.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node"]
+          args: ["--expose-gc", "/overleaf/services/clsi/app.js"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.clsi.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "overleaf.fullname" . }}-config
+            - secretRef:
+                name: {{ include "overleaf.fullname" . }}-secrets
+          env:
+            - name: LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: CLSI_HOST
+              value: "0.0.0.0"
+            {{- if .Values.sandbox.enabled }}
+            # Kubernetes sandbox configuration
+            - name: SANDBOXED_COMPILES
+              value: "true"
+            - name: SANDBOXED_COMPILES_KUBERNETES
+              value: "true"
+            - name: SANDBOX_NAMESPACE
+              value: {{ .Values.sandbox.namespace | quote }}
+            - name: SANDBOX_POD_TTL_MINUTES
+              value: {{ .Values.sandbox.podTTLMinutes | quote }}
+            - name: SANDBOX_TEXLIVE_IMAGE
+              value: {{ .Values.sandbox.texliveImage | quote }}
+            - name: SANDBOX_CPU_LIMIT
+              value: {{ .Values.sandbox.resources.limits.cpu | quote }}
+            - name: SANDBOX_MEMORY_LIMIT
+              value: {{ .Values.sandbox.resources.limits.memory | quote }}
+            - name: SANDBOX_CPU_REQUEST
+              value: {{ .Values.sandbox.resources.requests.cpu | quote }}
+            - name: SANDBOX_MEMORY_REQUEST
+              value: {{ .Values.sandbox.resources.requests.memory | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.clsi.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/overleaf/data
+            - name: compiles
+              mountPath: /overleaf/services/clsi/compiles
+            - name: output
+              mountPath: /overleaf/services/clsi/output
+            - name: cache
+              mountPath: /overleaf/services/clsi/cache
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "overleaf.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: compiles
+          emptyDir: {}
+        - name: output
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+      {{- with .Values.clsi.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clsi.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clsi.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-clsi
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: clsi
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.clsi.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: clsi
+{{- end }}

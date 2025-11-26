@@ -1,0 +1,29 @@
+{{- if .Values.sandbox.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.sandbox.namespace }}
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox
+  annotations:
+    # Ensure namespace is cleaned up with the release
+    helm.sh/resource-policy: keep
+---
+# Network policy to isolate sandbox pods (they should not have network access)
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "overleaf.fullname" . }}-sandbox-isolation
+  namespace: {{ .Values.sandbox.namespace }}
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  # No ingress or egress rules means all traffic is denied
+{{- end }}
+{{- end }}
