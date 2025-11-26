@@ -51,15 +51,13 @@ sandbox:
   enabled: true
   # Namespace for sandbox pods
   namespace: "overleaf-sandbox"
-  # Default TexLive image
-  texliveImage: "texlive/texlive:latest"
-  # List of allowed TexLive images
-  allowedImages:
-    - "texlive/texlive:latest"
-    - "texlive/texlive:TL2024-historic"
-    - "texlive/texlive:TL2023-historic"
-    - "texlive/texlive:TL2022-historic"
+  # Sandbox image with agent (built from Dockerfile.sandbox)
+  # This image includes TexLive and the sandbox-agent HTTP server
+  image: "overleaf/sandbox:latest"
+  # Agent port inside sandbox pods
+  agentPort: 8080
   # Pod TTL in minutes since last recompile
+  # Pods stay alive this long after the last compile to allow reuse
   podTTLMinutes: 20
   # Resource limits for sandbox pods
   resources:

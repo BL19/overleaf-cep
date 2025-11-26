@@ -1,0 +1,14 @@
+{
+  "name": "@overleaf/sandbox-agent",
+  "description": "Lightweight agent running in sandbox pods to execute LaTeX compilations",
+  "version": "1.0.0",
+  "private": true,
+  "main": "agent.js",
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

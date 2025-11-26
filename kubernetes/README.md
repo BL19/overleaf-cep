@@ -24,27 +24,97 @@ The deployment splits Overleaf into its constituent microservices:
 
 One of the key features of this deployment is native Kubernetes sandboxing for LaTeX compilation. Instead of using Docker-in-Docker (sibling containers), each project gets its own isolated pod for compilation.
 
+### Architecture
+
+Each sandbox pod runs the **sandbox-agent**, a lightweight HTTP server that:
+- Receives project files from CLSI via HTTP
+- Executes LaTeX compilation commands
+- Streams output files back to CLSI
+- Stays alive for pod reuse (no pod scheduling overhead for subsequent compiles)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        CLSI Service                             │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                  KubernetesRunner                        │   │
+│  │  - Creates/reuses sandbox pods                           │   │
+│  │  - Uploads files via HTTP POST /upload                   │   │
+│  │  - Triggers compile via HTTP POST /compile               │   │
+│  │  - Downloads outputs via HTTP GET /download              │   │
+│  └────────────────────────┬────────────────────────────────┘   │
+└───────────────────────────┼─────────────────────────────────────┘
+                            │ HTTP (port 8080)
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Sandbox Namespace                            │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              Sandbox Pod (per project)                   │   │
+│  │  ┌─────────────────────────────────────────────────┐    │   │
+│  │  │              sandbox-agent                       │    │   │
+│  │  │  - HTTP server listening on port 8080            │    │   │
+│  │  │  - Receives files → /compile directory           │    │   │
+│  │  │  - Runs latexmk/pdflatex commands                │    │   │
+│  │  │  - Sends back .pdf, .log, .aux files             │    │   │
+│  │  │  - Stays alive for 20min (configurable)          │    │   │
+│  │  └─────────────────────────────────────────────────┘    │   │
+│  │  ┌─────────────────────────────────────────────────┐    │   │
+│  │  │              TexLive Installation                │    │   │
+│  │  │  - Full TexLive distribution                     │    │   │
+│  │  │  - Runs inside the same container                │    │   │
+│  │  └─────────────────────────────────────────────────┘    │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
+│  Network Policy: No ingress/egress (isolated)                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### How It Works
 
 1. When a compile request comes in, the CLSI service checks if a pod already exists for that project
 2. If no pod exists, a new pod is created in the sandbox namespace with:
-   - Network isolation (no ingress/egress)
+   - The sandbox-agent running as the main process
+   - Network isolation (no ingress/egress except from CLSI)
    - Resource limits (CPU, memory)
-   - Security contexts (non-root, dropped capabilities)
-   - The specified TexLive image
-3. Compile files are copied to the pod via the Kubernetes API
-4. The compile command is executed in the pod
-5. Output files are copied back to CLSI
-6. The pod stays alive for a configurable TTL (default: 20 minutes) to handle subsequent compiles for the same project
-7. After the TTL expires with no activity, the pod is automatically cleaned up
+   - Security contexts (non-root, dropped capabilities, read-only root filesystem)
+3. CLSI uploads project files to the pod via HTTP POST to `/upload`
+4. CLSI triggers compilation via HTTP POST to `/compile` with the command to run
+5. The sandbox-agent executes the compile command and returns stdout/stderr
+6. CLSI downloads output files via HTTP GET from `/download`
+7. The pod stays alive for a configurable TTL (default: 20 minutes) to handle subsequent compiles
+8. After the TTL expires with no activity, the pod is automatically cleaned up
 
 ### Benefits
 
 - **True isolation**: Each project compiles in its own pod
 - **Pod reuse**: The same pod is reused for subsequent compiles of the same project, avoiding scheduling overhead
+- **Efficient file transfer**: HTTP-based file transfer is faster than kubectl exec
 - **Automatic cleanup**: Idle pods are automatically terminated after the TTL
 - **Resource control**: Fine-grained CPU and memory limits per compile
 - **Network isolation**: Compile pods have no network access
+
+### Building the Sandbox Image
+
+The sandbox image includes TexLive and the sandbox-agent. Build it with:
+
+```bash
+docker build -f kubernetes/dockerfiles/Dockerfile.sandbox \
+  --build-arg TEXLIVE_IMAGE=texlive/texlive:latest \
+  -t overleaf/sandbox:latest .
+```
+
+For different TexLive versions:
+
+```bash
+# TexLive 2024
+docker build -f kubernetes/dockerfiles/Dockerfile.sandbox \
+  --build-arg TEXLIVE_IMAGE=texlive/texlive:TL2024-historic \
+  -t overleaf/sandbox:TL2024 .
+
+# TexLive 2023
+docker build -f kubernetes/dockerfiles/Dockerfile.sandbox \
+  --build-arg TEXLIVE_IMAGE=texlive/texlive:TL2023-historic \
+  -t overleaf/sandbox:TL2023 .
+```
 
 ## Prerequisites
 
@@ -68,15 +138,24 @@ helm repo update
 kubectl create namespace overleaf
 ```
 
-### 3. Install the Helm chart
+### 3. Build and push the sandbox image
+
+```bash
+docker build -f kubernetes/dockerfiles/Dockerfile.sandbox \
+  -t your-registry/overleaf-sandbox:latest .
+docker push your-registry/overleaf-sandbox:latest
+```
+
+### 4. Install the Helm chart
 
 ```bash
 cd kubernetes/helm
 helm dependency update overleaf
-helm install overleaf ./overleaf -n overleaf
+helm install overleaf ./overleaf -n overleaf \
+  --set sandbox.image=your-registry/overleaf-sandbox:latest
 ```
 
-### 4. Create an admin user
+### 5. Create an admin user
 
 After the deployment is running:
 

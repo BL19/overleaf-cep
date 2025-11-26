@@ -4,6 +4,15 @@
  * This module replaces DockerRunner for Kubernetes deployments.
  * Each project gets its own pod that stays alive for a configurable TTL
  * since the last compile, allowing pod reuse for efficiency.
+ * 
+ * Architecture:
+ * - Each project gets a dedicated pod running the sandbox-agent
+ * - The sandbox-agent is a lightweight HTTP server that handles:
+ *   - File uploads from CLSI
+ *   - Compilation command execution
+ *   - File downloads back to CLSI
+ * - Pods stay alive for podTTLMinutes (default 20) after the last compile
+ * - Subsequent compiles reuse the same pod (no scheduling overhead)
  */
 
 const { promisify } = require('node:util')
@@ -12,7 +21,8 @@ const logger = require('@overleaf/logger')
 const crypto = require('node:crypto')
 const Path = require('node:path')
 const fs = require('node:fs').promises
-const _ = require('lodash')
+const http = require('node:http')
+const https = require('node:https')
 
 // Kubernetes client
 const k8s = require('@kubernetes/client-node')
@@ -21,23 +31,28 @@ const kc = new k8s.KubeConfig()
 kc.loadFromCluster()
 
 const k8sApi = kc.makeApiClient(k8s.CoreV1Api)
-const k8sExec = new k8s.Exec(kc)
 
 // Configuration from environment
 const SANDBOX_NAMESPACE = process.env.SANDBOX_NAMESPACE || 'overleaf-sandbox'
 const POD_TTL_MINUTES = parseInt(process.env.SANDBOX_POD_TTL_MINUTES, 10) || 20
 const POD_TTL_MS = POD_TTL_MINUTES * 60 * 1000
+const SANDBOX_AGENT_PORT = parseInt(process.env.SANDBOX_AGENT_PORT, 10) || 8080
+const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE || 'overleaf/sandbox:latest'
 
-// Track active pods and their last activity
-const activePods = new Map()
+// Track active pods and their IP addresses
+const activePods = new Map() // podName -> { ip, lastActivity }
 
 // Pod activity tracking
-function updatePodActivity(podName) {
-  activePods.set(podName, Date.now())
+function updatePodActivity(podName, podIp) {
+  activePods.set(podName, { ip: podIp, lastActivity: Date.now() })
+}
+
+function getPodInfo(podName) {
+  return activePods.get(podName)
 }
 
 function getPodLastActivity(podName) {
-  return activePods.get(podName) || 0
+  return activePods.get(podName)?.lastActivity || 0
 }
 
 logger.debug({ namespace: SANDBOX_NAMESPACE, ttlMinutes: POD_TTL_MINUTES }, 'using kubernetes runner')
@@ -106,6 +121,7 @@ const KubernetesRunner = {
 
   /**
    * Run command in a pod, creating it if necessary
+   * Uses HTTP communication with the sandbox-agent running in the pod
    */
   async _runInPod(
     podName,
@@ -120,28 +136,35 @@ const KubernetesRunner = {
   ) {
     try {
       // Check if pod already exists and is running
-      let pod = await KubernetesRunner._getExistingPod(podName)
+      let podInfo = await KubernetesRunner._getExistingPod(podName)
       
-      if (!pod) {
-        // Create new pod
-        pod = await KubernetesRunner._createPod(podName, projectId, image, environment, compileGroup)
+      if (!podInfo) {
+        // Create new pod with sandbox agent
+        podInfo = await KubernetesRunner._createPod(podName, projectId, image, environment, compileGroup)
         await KubernetesRunner._waitForPodReady(podName)
+        // Get pod IP after it's ready
+        podInfo = await KubernetesRunner._getExistingPod(podName)
       }
 
-      // Update activity timestamp
-      updatePodActivity(podName)
+      const podIp = podInfo.status?.podIP
+      if (!podIp) {
+        throw new Error(`Pod ${podName} has no IP address`)
+      }
 
-      // Copy compile files to pod
-      await KubernetesRunner._copyFilesToPod(podName, directory)
+      // Update activity timestamp with pod IP
+      updatePodActivity(podName, podIp)
 
-      // Execute the compile command
-      const result = await KubernetesRunner._executeCommand(podName, command, timeout)
+      // Upload compile files to pod via HTTP
+      await KubernetesRunner._uploadFilesToPod(podIp, directory)
 
-      // Copy output files back
-      await KubernetesRunner._copyFilesFromPod(podName, directory)
+      // Execute the compile command via HTTP
+      const result = await KubernetesRunner._executeCompileViaAgent(podIp, command, timeout)
+
+      // Download output files from pod via HTTP
+      await KubernetesRunner._downloadFilesFromPod(podIp, directory)
 
       // Update activity again after successful compile
-      updatePodActivity(podName)
+      updatePodActivity(podName, podIp)
 
       callback(null, result)
     } catch (error) {
@@ -205,13 +228,15 @@ const KubernetesRunner = {
   },
 
   /**
-   * Build the pod specification
+   * Build the pod specification with sandbox-agent
    */
   _buildPodSpec(podName, projectId, image, environment, compileGroup) {
-    // Build environment variables
+    // Build environment variables for the sandbox agent
     const envVars = [
       { name: 'HOME', value: '/home/texlive' },
-      { name: 'CLSI', value: '1' },
+      { name: 'COMPILE_DIR', value: '/compile' },
+      { name: 'SANDBOX_AGENT_PORT', value: String(SANDBOX_AGENT_PORT) },
+      { name: 'IDLE_TIMEOUT_MS', value: String(POD_TTL_MS) },
     ]
 
     // Add custom environment variables
@@ -221,7 +246,7 @@ const KubernetesRunner = {
       }
     }
 
-    // Set PATH based on image year
+    // Set PATH based on requested TexLive image year
     const match = image.match(/:([0-9]+)\.[0-9]+|:TL([0-9]+)/)
     const year = match ? match[1] || match[2] : 'rolling'
     envVars.push({
@@ -234,6 +259,10 @@ const KubernetesRunner = {
     const memoryLimit = process.env.SANDBOX_MEMORY_LIMIT || '2Gi'
     const cpuRequest = process.env.SANDBOX_CPU_REQUEST || '500m'
     const memoryRequest = process.env.SANDBOX_MEMORY_REQUEST || '512Mi'
+
+    // Use sandbox image with agent, or fall back to configured sandbox image
+    // The sandbox image should be built from Dockerfile.sandbox with the desired TexLive version
+    const sandboxImage = process.env.SANDBOX_IMAGE || `overleaf/sandbox:${year}`
 
     return {
       apiVersion: 'v1',
@@ -249,13 +278,14 @@ const KubernetesRunner = {
         annotations: {
           'overleaf.io/project-id': projectId,
           'overleaf.io/created-at': new Date().toISOString(),
+          'overleaf.io/texlive-image': image,
         }
       },
       spec: {
-        // Don't restart on failure
-        restartPolicy: 'Never',
-        // Terminate after TTL
-        activeDeadlineSeconds: POD_TTL_MS / 1000 + 3600, // Add extra hour as buffer
+        // Restart on failure to keep agent running
+        restartPolicy: 'OnFailure',
+        // Terminate after TTL (with buffer)
+        activeDeadlineSeconds: Math.floor(POD_TTL_MS / 1000) + 3600,
         // Security context
         securityContext: {
           runAsNonRoot: true,
@@ -263,16 +293,18 @@ const KubernetesRunner = {
           runAsGroup: 1000,
           fsGroup: 1000,
         },
-        // No service account needed - network isolated
+        // No service account needed
         automountServiceAccountToken: false,
-        // Compile container
+        // Sandbox agent container
         containers: [{
-          name: 'compile',
-          image: image,
+          name: 'sandbox-agent',
+          image: sandboxImage,
           imagePullPolicy: 'IfNotPresent',
-          // Keep container running
-          command: ['sleep', 'infinity'],
-          workingDir: '/compile',
+          ports: [{
+            name: 'http',
+            containerPort: SANDBOX_AGENT_PORT,
+            protocol: 'TCP'
+          }],
           env: envVars,
           resources: {
             limits: {
@@ -286,7 +318,6 @@ const KubernetesRunner = {
           },
           securityContext: {
             allowPrivilegeEscalation: false,
-            // Root filesystem can be read-only since we mount /compile and /tmp as writable volumes
             readOnlyRootFilesystem: true,
             capabilities: {
               drop: ['ALL']
@@ -302,11 +333,28 @@ const KubernetesRunner = {
               mountPath: '/tmp'
             },
             {
-              // TexLive needs a writable home directory for caching
               name: 'home',
               mountPath: '/home/texlive'
             }
-          ]
+          ],
+          livenessProbe: {
+            httpGet: {
+              path: '/health',
+              port: SANDBOX_AGENT_PORT
+            },
+            initialDelaySeconds: 5,
+            periodSeconds: 30,
+            timeoutSeconds: 5
+          },
+          readinessProbe: {
+            httpGet: {
+              path: '/health',
+              port: SANDBOX_AGENT_PORT
+            },
+            initialDelaySeconds: 2,
+            periodSeconds: 5,
+            timeoutSeconds: 3
+          }
         }],
         volumes: [
           {
@@ -334,7 +382,7 @@ const KubernetesRunner = {
   },
 
   /**
-   * Wait for pod to be ready
+   * Wait for pod to be ready (checks both Kubernetes status and agent health)
    */
   async _waitForPodReady(podName, timeoutMs = 60000) {
     const startTime = Date.now()
@@ -349,11 +397,18 @@ const KubernetesRunner = {
         const pod = response.body || response
 
         if (pod.status?.phase === 'Running') {
-          // Check if container is ready
-          const containerStatus = pod.status.containerStatuses?.find(cs => cs.name === 'compile')
-          if (containerStatus?.ready) {
-            logger.debug({ podName }, 'pod is ready')
-            return
+          // Check if sandbox-agent container is ready
+          const containerStatus = pod.status.containerStatuses?.find(cs => cs.name === 'sandbox-agent')
+          if (containerStatus?.ready && pod.status?.podIP) {
+            // Also verify agent is responding
+            try {
+              await KubernetesRunner._httpRequest(pod.status.podIP, '/health', 'GET', null, 5000)
+              logger.debug({ podName, podIp: pod.status.podIP }, 'pod and agent are ready')
+              return
+            } catch (healthError) {
+              // Agent not ready yet, continue waiting
+              logger.debug({ podName, err: healthError.message }, 'agent health check failed, retrying')
+            }
           }
         }
 
@@ -374,263 +429,154 @@ const KubernetesRunner = {
   },
 
   /**
-   * Copy files from local directory to pod
+   * Make an HTTP request to the sandbox agent
    */
-  async _copyFilesToPod(podName, localDir) {
-    // Use kubectl cp equivalent - tar and stream
-    const files = await fs.readdir(localDir, { withFileTypes: true })
-    
-    for (const file of files) {
-      const localPath = Path.join(localDir, file.name)
-      const remotePath = `/compile/${file.name}`
-      
-      if (file.isDirectory()) {
-        // Recursively copy directory
-        await KubernetesRunner._copyDirToPod(podName, localPath, remotePath)
-      } else {
-        // Copy file
-        await KubernetesRunner._copyFileToPod(podName, localPath, remotePath)
-      }
-    }
-  },
-
-  /**
-   * Escape shell argument to prevent command injection
-   */
-  _escapeShellArg(arg) {
-    // Replace single quotes with escaped single quotes
-    // Then wrap in single quotes for shell safety
-    return "'" + arg.replace(/'/g, "'\\''") + "'"
-  },
-
-  /**
-   * Validate path to prevent path traversal attacks
-   */
-  _validatePath(path, baseDir) {
-    const normalizedPath = Path.normalize(path)
-    // Ensure path doesn't escape the base directory
-    if (!normalizedPath.startsWith(baseDir)) {
-      throw new Error(`Invalid path: ${path}`)
-    }
-    // Prevent common malicious patterns
-    if (normalizedPath.includes('..') || normalizedPath.includes('\0')) {
-      throw new Error(`Invalid characters in path: ${path}`)
-    }
-    return normalizedPath
-  },
-
-  /**
-   * Copy a single file to pod
-   */
-  async _copyFileToPod(podName, localPath, remotePath) {
-    // Validate the remote path to prevent path traversal
-    KubernetesRunner._validatePath(remotePath, '/compile')
-    
-    const content = await fs.readFile(localPath)
-    const base64Content = content.toString('base64')
-    
-    // Escape the remote path to prevent command injection
-    const escapedPath = KubernetesRunner._escapeShellArg(remotePath)
-    
-    // Use exec to write file with properly escaped arguments
-    const command = ['sh', '-c', `base64 -d > ${escapedPath}`]
-    
-    // Pass base64 content via a safer method - write to stdin
-    await KubernetesRunner._execInPodWithInput(podName, command, base64Content)
-  },
-
-  /**
-   * Execute command in pod with stdin input
-   */
-  async _execInPodWithInput(podName, command, input) {
+  _httpRequest(podIp, path, method, body, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
-      let stdout = ''
-      let stderr = ''
-
-      const execInstance = new k8s.Exec(kc)
-      
-      execInstance.exec(
-        SANDBOX_NAMESPACE,
-        podName,
-        'compile',
-        command,
-        // Streams
-        {
-          write: (data) => { stdout += data },
-        },
-        {
-          write: (data) => { stderr += data },
-        },
-        // stdin stream
-        {
-          readable: true,
-          read() {
-            this.push(input)
-            this.push(null)
-          }
-        },
-        false, // tty
-        (status) => {
-          if (status.status === 'Success') {
-            resolve({ stdout, stderr, exitCode: 0 })
-          } else {
-            const exitCode = status.details?.causes?.find(c => c.reason === 'ExitCode')?.message
-            if (exitCode === '0' || !exitCode) {
-              resolve({ stdout, stderr, exitCode: parseInt(exitCode, 10) || 0 })
-            } else {
-              const err = new Error(`Command failed with exit code ${exitCode}`)
-              err.exitCode = parseInt(exitCode, 10)
-              err.stdout = stdout
-              err.stderr = stderr
-              reject(err)
-            }
-          }
+      const options = {
+        hostname: podIp,
+        port: SANDBOX_AGENT_PORT,
+        path: path,
+        method: method,
+        timeout: timeoutMs,
+        headers: {
+          'Content-Type': 'application/json'
         }
-      ).catch(reject)
+      }
+
+      const req = http.request(options, (res) => {
+        let data = ''
+        res.on('data', chunk => { data += chunk })
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data)
+            if (res.statusCode >= 400) {
+              const err = new Error(json.error || `HTTP ${res.statusCode}`)
+              err.statusCode = res.statusCode
+              reject(err)
+            } else {
+              resolve(json)
+            }
+          } catch (e) {
+            reject(new Error(`Invalid JSON response: ${data.slice(0, 100)}`))
+          }
+        })
+      })
+
+      req.on('error', reject)
+      req.on('timeout', () => {
+        req.destroy()
+        reject(new Error('Request timeout'))
+      })
+
+      if (body) {
+        req.write(JSON.stringify(body))
+      }
+      req.end()
     })
   },
 
   /**
-   * Copy directory to pod
+   * Upload files to pod via HTTP
    */
-  async _copyDirToPod(podName, localDir, remoteDir) {
-    // Validate the remote directory path
-    KubernetesRunner._validatePath(remoteDir, '/compile')
+  async _uploadFilesToPod(podIp, localDir) {
+    const files = {}
+    await KubernetesRunner._collectFilesForUpload(localDir, '', files)
     
-    // Escape the remote dir for the mkdir command
-    const escapedDir = KubernetesRunner._escapeShellArg(remoteDir)
+    logger.debug({ podIp, fileCount: Object.keys(files).length }, 'uploading files to pod')
     
-    // Create directory
-    await KubernetesRunner._execInPod(podName, ['mkdir', '-p', remoteDir])
+    const response = await KubernetesRunner._httpRequest(podIp, '/upload', 'POST', { files }, 60000)
     
-    const files = await fs.readdir(localDir, { withFileTypes: true })
+    if (!response.success) {
+      throw new Error(`Failed to upload files: ${response.error}`)
+    }
     
-    for (const file of files) {
-      // Validate filename to prevent malicious filenames
-      if (file.name.includes('/') || file.name.includes('\0')) {
-        logger.warn({ fileName: file.name }, 'skipping file with invalid name')
+    return response
+  },
+
+  /**
+   * Collect files recursively for upload
+   */
+  async _collectFilesForUpload(dir, basePath, files) {
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    
+    for (const entry of entries) {
+      // Skip files with potentially dangerous names
+      if (entry.name.includes('/') || entry.name.includes('\0') || entry.name.startsWith('.')) {
         continue
       }
       
-      const localPath = Path.join(localDir, file.name)
-      const remotePath = `${remoteDir}/${file.name}`
+      const localPath = Path.join(dir, entry.name)
+      const remotePath = basePath ? `${basePath}/${entry.name}` : entry.name
       
-      if (file.isDirectory()) {
-        await KubernetesRunner._copyDirToPod(podName, localPath, remotePath)
+      if (entry.isDirectory()) {
+        await KubernetesRunner._collectFilesForUpload(localPath, remotePath, files)
       } else {
-        await KubernetesRunner._copyFileToPod(podName, localPath, remotePath)
+        const content = await fs.readFile(localPath)
+        files[remotePath] = content.toString('base64')
       }
     }
   },
 
   /**
-   * Copy files from pod to local directory
+   * Execute compile command via HTTP agent
    */
-  async _copyFilesFromPod(podName, localDir) {
-    // Get list of output files
-    const listResult = await KubernetesRunner._execInPod(podName, ['ls', '-la', '/compile'])
+  async _executeCompileViaAgent(podIp, command, timeout) {
+    logger.debug({ podIp, command }, 'executing compile via agent')
     
-    // Copy output files (pdf, log, aux, etc.)
+    const response = await KubernetesRunner._httpRequest(
+      podIp,
+      '/compile',
+      'POST',
+      { command, timeout },
+      timeout + 5000 // Add buffer for HTTP overhead
+    )
+    
+    if (response.timedOut) {
+      const err = new Error('container timed out')
+      err.timedout = true
+      throw err
+    }
+    
+    return {
+      stdout: response.stdout || '',
+      stderr: response.stderr || '',
+      exitCode: response.exitCode
+    }
+  },
+
+  /**
+   * Download output files from pod via HTTP
+   */
+  async _downloadFilesFromPod(podIp, localDir) {
+    // List files with output extensions
     const outputExtensions = ['.pdf', '.log', '.aux', '.synctex.gz', '.blg', '.bbl', '.out', '.toc']
+    const listResponse = await KubernetesRunner._httpRequest(
+      podIp,
+      `/files?extensions=${outputExtensions.join(',')}`,
+      'GET',
+      null,
+      30000
+    )
     
-    // Get file list
-    const filesResult = await KubernetesRunner._execInPod(podName, ['find', '/compile', '-maxdepth', '2', '-type', 'f'])
-    const files = filesResult.stdout.trim().split('\n').filter(Boolean)
+    logger.debug({ podIp, fileCount: listResponse.files?.length }, 'downloading output files')
     
-    for (const remotePath of files) {
-      const fileName = Path.basename(remotePath)
-      const ext = Path.extname(fileName).toLowerCase()
+    for (const fileInfo of listResponse.files || []) {
+      // Download each file
+      const downloadResponse = await KubernetesRunner._httpRequest(
+        podIp,
+        `/download?path=${encodeURIComponent(fileInfo.path)}`,
+        'GET',
+        null,
+        60000
+      )
       
-      if (outputExtensions.some(e => fileName.endsWith(e)) || fileName === 'output.pdf') {
-        const localPath = Path.join(localDir, fileName)
-        await KubernetesRunner._copyFileFromPod(podName, remotePath, localPath)
+      if (downloadResponse.content) {
+        const localPath = Path.join(localDir, Path.basename(fileInfo.path))
+        const content = Buffer.from(downloadResponse.content, 'base64')
+        await fs.writeFile(localPath, content)
       }
     }
-  },
-
-  /**
-   * Copy file from pod to local
-   */
-  async _copyFileFromPod(podName, remotePath, localPath) {
-    // Read file as base64 from pod
-    const result = await KubernetesRunner._execInPod(podName, ['base64', '-w', '0', remotePath])
-    
-    if (result.stdout) {
-      const content = Buffer.from(result.stdout, 'base64')
-      await fs.writeFile(localPath, content)
-    }
-  },
-
-  /**
-   * Execute command in pod
-   */
-  async _executeCommand(podName, command, timeout) {
-    return new Promise((resolve, reject) => {
-      let timedOut = false
-      const timeoutId = setTimeout(() => {
-        timedOut = true
-        const err = new Error('container timed out')
-        err.timedout = true
-        reject(err)
-      }, timeout)
-
-      KubernetesRunner._execInPod(podName, command)
-        .then(result => {
-          clearTimeout(timeoutId)
-          if (timedOut) return
-          resolve(result)
-        })
-        .catch(error => {
-          clearTimeout(timeoutId)
-          if (timedOut) return
-          reject(error)
-        })
-    })
-  },
-
-  /**
-   * Execute command in pod and return output
-   */
-  _execInPod(podName, command) {
-    return new Promise((resolve, reject) => {
-      let stdout = ''
-      let stderr = ''
-
-      const execInstance = new k8s.Exec(kc)
-      
-      execInstance.exec(
-        SANDBOX_NAMESPACE,
-        podName,
-        'compile',
-        command,
-        // Streams
-        {
-          write: (data) => { stdout += data },
-        },
-        {
-          write: (data) => { stderr += data },
-        },
-        null, // stdin
-        false, // tty
-        (status) => {
-          if (status.status === 'Success') {
-            resolve({ stdout, stderr, exitCode: 0 })
-          } else {
-            // Check exit code
-            const exitCode = status.details?.causes?.find(c => c.reason === 'ExitCode')?.message
-            if (exitCode === '0' || !exitCode) {
-              resolve({ stdout, stderr, exitCode: parseInt(exitCode, 10) || 0 })
-            } else {
-              const err = new Error(`Command failed with exit code ${exitCode}`)
-              err.exitCode = parseInt(exitCode, 10)
-              err.stdout = stdout
-              err.stderr = stderr
-              reject(err)
-            }
-          }
-        }
-      ).catch(reject)
-    })
   },
 
   /**

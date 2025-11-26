@@ -43,8 +43,8 @@ data:
   SANDBOXED_COMPILES_KUBERNETES: "true"
   SANDBOX_NAMESPACE: {{ .Values.sandbox.namespace | quote }}
   SANDBOX_POD_TTL_MINUTES: {{ .Values.sandbox.podTTLMinutes | quote }}
-  SANDBOX_TEXLIVE_IMAGE: {{ .Values.sandbox.texliveImage | quote }}
-  SANDBOX_ALLOWED_IMAGES: {{ .Values.sandbox.allowedImages | join "," | quote }}
+  SANDBOX_IMAGE: {{ .Values.sandbox.image | quote }}
+  SANDBOX_AGENT_PORT: {{ .Values.sandbox.agentPort | quote }}
   {{- else }}
   SANDBOXED_COMPILES: "false"
   {{- end }}
