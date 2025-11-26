@@ -40,7 +40,11 @@ const POD_TTL_MS = POD_TTL_MINUTES * 60 * 1000
 const SANDBOX_AGENT_PORT = parseInt(process.env.SANDBOX_AGENT_PORT, 10) || 8080
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE || 'overleaf/sandbox:latest'
 // Shared secret for authenticating with sandbox agents
-const SANDBOX_AGENT_SECRET = process.env.SANDBOX_AGENT_SECRET || crypto.randomBytes(32).toString('hex')
+// MUST be set in production for multi-replica deployments
+const SANDBOX_AGENT_SECRET = process.env.SANDBOX_AGENT_SECRET
+if (!SANDBOX_AGENT_SECRET) {
+  logger.warn('SANDBOX_AGENT_SECRET not set. Authentication with sandbox agents will be disabled. This is insecure for production and shared VPCs.')
+}
 
 // Track active pods and their IP addresses
 const activePods = new Map() // podName -> { ip, lastActivity }
@@ -438,20 +442,26 @@ const KubernetesRunner = {
 
   /**
    * Make an HTTP request to the sandbox agent
-   * Includes authentication token in the Authorization header
+   * Includes authentication token in the Authorization header if configured
    */
   _httpRequest(podIp, path, method, body, timeoutMs = 30000) {
     return new Promise((resolve, reject) => {
+      const headers = {
+        'Content-Type': 'application/json'
+      }
+      
+      // Only add authentication header if secret is configured
+      if (SANDBOX_AGENT_SECRET) {
+        headers['Authorization'] = `Bearer ${SANDBOX_AGENT_SECRET}`
+      }
+      
       const options = {
         hostname: podIp,
         port: SANDBOX_AGENT_PORT,
         path: path,
         method: method,
         timeout: timeoutMs,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SANDBOX_AGENT_SECRET}`
-        }
+        headers
       }
 
       const req = http.request(options, (res) => {
