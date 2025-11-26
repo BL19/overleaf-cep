@@ -1,0 +1,19 @@
+{{- if .Values.services.references.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-references
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: references
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.references.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: references
+{{- end }}

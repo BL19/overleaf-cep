@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: overleaf-docstore
+  namespace: overleaf
+  labels:
+    app.kubernetes.io/component: docstore
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3016
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: overleaf
+    app.kubernetes.io/component: docstore

@@ -1,0 +1,460 @@
+# Overleaf Helm Chart Values
+# This file contains default configuration values for the Overleaf deployment
+
+# Global settings
+global:
+  # Image settings
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Common settings for all services
+common:
+  # Node.js environment
+  nodeEnv: production
+  logLevel: info
+
+# Image configuration
+image:
+  # Base image settings - can be overridden per service
+  registry: docker.io
+  repository: sharelatex/sharelatex
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Number of replicas for services (can be overridden per service)
+replicaCount: 1
+
+# Service account configuration
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Pod annotations and labels
+podAnnotations: {}
+podLabels: {}
+
+# Security context
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+
+# Resource limits and requests (can be overridden per service)
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: overleaf.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: web
+        - path: /socket.io
+          pathType: Prefix
+          service: real-time
+  tls: []
+  #  - secretName: overleaf-tls
+  #    hosts:
+  #      - overleaf.local
+
+# Persistence configuration
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Shared storage for data
+  data:
+    size: 10Gi
+  # Storage for compiled files
+  compiles:
+    size: 5Gi
+  # Storage for file cache
+  cache:
+    size: 5Gi
+  # Storage for user uploads
+  uploads:
+    size: 5Gi
+
+# MongoDB configuration
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootUser: root
+    rootPassword: ""  # Set in secrets
+    database: sharelatex
+    username: overleaf
+    password: ""  # Set in secrets
+  architecture: replicaset
+  replicaSetName: overleaf
+  replicaCount: 3
+  persistence:
+    enabled: true
+    size: 10Gi
+  # External MongoDB (if not using embedded)
+  external:
+    enabled: false
+    url: ""
+
+# Redis configuration
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: ""  # Set in secrets
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi
+  # External Redis (if not using embedded)
+  external:
+    enabled: false
+    host: ""
+    port: 6379
+    password: ""
+
+# Overleaf application configuration
+overleaf:
+  # Site URL (required)
+  siteUrl: "http://overleaf.local"
+  
+  # Application name
+  appName: "Overleaf Community Edition"
+  
+  # Admin email
+  adminEmail: "admin@example.com"
+  
+  # Session secret (should be set in secrets)
+  sessionSecret: ""
+  
+  # Enable anonymous read/write sharing
+  allowAnonymousReadAndWriteSharing: false
+  
+  # Email confirmation
+  emailConfirmationDisabled: true
+  
+  # Compile timeout in seconds
+  compileTimeout: 180
+  
+  # Enable PDF caching
+  enablePdfCaching: false
+  
+  # Filestore backend (fs or s3)
+  filestoreBackend: fs
+  
+  # S3 configuration (if using s3 backend)
+  s3:
+    endpoint: ""
+    accessKeyId: ""
+    secretAccessKey: ""
+    region: "us-east-1"
+    pathStyle: true
+    buckets:
+      templateFiles: "overleaf-template-files"
+      projectBlobs: "overleaf-project-blobs"
+      globalBlobs: "overleaf-global-blobs"
+  
+  # Email configuration
+  email:
+    enabled: false
+    fromAddress: ""
+    replyTo: ""
+    smtp:
+      host: ""
+      port: 587
+      secure: false
+      user: ""
+      password: ""
+
+# Individual service configurations
+services:
+  # Web service - main web application
+  web:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""  # Uses global image if not set
+      tag: ""
+    port: 3000
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 512Mi
+    env: {}
+    # Additional environment variables
+    
+  # Real-time service - WebSocket handling
+  realTime:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3026
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    env: {}
+    
+  # Document updater service
+  documentUpdater:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3003
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    env: {}
+    
+  # CLSI service - LaTeX compiler
+  clsi:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3013
+    resources:
+      limits:
+        cpu: 4000m
+        memory: 4Gi
+      requests:
+        cpu: 1000m
+        memory: 1Gi
+    env: {}
+    # TeX Live image for compilation
+    texLiveImage: "quay.io/sharelatex/texlive-full:2023.1"
+    
+  # Filestore service
+  filestore:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3009
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    env: {}
+    
+  # Docstore service
+  docstore:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3016
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    env: {}
+    
+  # Chat service
+  chat:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3010
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    env: {}
+    
+  # Contacts service
+  contacts:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3036
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    env: {}
+    
+  # Notifications service
+  notifications:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3042
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    env: {}
+    
+  # Project history service
+  projectHistory:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3054
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    env: {}
+    
+  # References service
+  references:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3056
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    env: {}
+    
+  # History V1 service
+  historyV1:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3100
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+    env: {}
+    
+  # Linked URL proxy service
+  linkedUrlProxy:
+    enabled: true
+    replicaCount: 1
+    image:
+      repository: ""
+      tag: ""
+    port: 3066
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    env: {}
+
+# Health check configuration
+healthCheck:
+  enabled: true
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 6
+    successThreshold: 1
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+
+# Network policies
+networkPolicy:
+  enabled: false
+  # Additional ingress rules
+  ingress: []
+  # Additional egress rules
+  egress: []
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+  # maxUnavailable: 1
+
+# Autoscaling configuration (per service)
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80

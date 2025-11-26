@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "overleaf.fullname" . }}-config
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+data:
+  # Site configuration
+  OVERLEAF_SITE_URL: {{ .Values.overleaf.siteUrl | quote }}
+  OVERLEAF_APP_NAME: {{ .Values.overleaf.appName | quote }}
+  OVERLEAF_ADMIN_EMAIL: {{ .Values.overleaf.adminEmail | quote }}
+  
+  # Feature flags
+  OVERLEAF_ALLOW_ANONYMOUS_READ_AND_WRITE_SHARING: {{ .Values.overleaf.allowAnonymousReadAndWriteSharing | quote }}
+  EMAIL_CONFIRMATION_DISABLED: {{ .Values.overleaf.emailConfirmationDisabled | quote }}
+  ENABLE_PDF_CACHING: {{ .Values.overleaf.enablePdfCaching | quote }}
+  
+  # Compile settings
+  COMPILE_TIMEOUT: {{ .Values.overleaf.compileTimeout | quote }}
+  
+  # Filestore backend
+  OVERLEAF_FILESTORE_BACKEND: {{ .Values.overleaf.filestoreBackend | quote }}
+  
+  {{- if eq .Values.overleaf.filestoreBackend "s3" }}
+  # S3 configuration
+  OVERLEAF_FILESTORE_S3_ENDPOINT: {{ .Values.overleaf.s3.endpoint | quote }}
+  OVERLEAF_FILESTORE_S3_REGION: {{ .Values.overleaf.s3.region | quote }}
+  OVERLEAF_FILESTORE_S3_PATH_STYLE: {{ .Values.overleaf.s3.pathStyle | quote }}
+  OVERLEAF_FILESTORE_TEMPLATE_FILES_BUCKET_NAME: {{ .Values.overleaf.s3.buckets.templateFiles | quote }}
+  OVERLEAF_HISTORY_PROJECT_BLOBS_BUCKET: {{ .Values.overleaf.s3.buckets.projectBlobs | quote }}
+  OVERLEAF_HISTORY_BLOBS_BUCKET: {{ .Values.overleaf.s3.buckets.globalBlobs | quote }}
+  {{- end }}
+  
+  # Email configuration
+  {{- if .Values.overleaf.email.enabled }}
+  OVERLEAF_EMAIL_FROM_ADDRESS: {{ .Values.overleaf.email.fromAddress | quote }}
+  OVERLEAF_EMAIL_REPLY_TO: {{ .Values.overleaf.email.replyTo | quote }}
+  OVERLEAF_EMAIL_SMTP_HOST: {{ .Values.overleaf.email.smtp.host | quote }}
+  OVERLEAF_EMAIL_SMTP_PORT: {{ .Values.overleaf.email.smtp.port | quote }}
+  OVERLEAF_EMAIL_SMTP_SECURE: {{ .Values.overleaf.email.smtp.secure | quote }}
+  OVERLEAF_EMAIL_SMTP_USER: {{ .Values.overleaf.email.smtp.user | quote }}
+  {{- end }}
+  
+  # CLSI configuration
+  {{- if .Values.services.clsi.texLiveImage }}
+  TEX_LIVE_DOCKER_IMAGE: {{ .Values.services.clsi.texLiveImage | quote }}
+  {{- end }}
+  
+  # Linked file types
+  ENABLED_LINKED_FILE_TYPES: "project_file,project_output_file"
+  
+  # Enable image conversions for thumbnails
+  ENABLE_CONVERSIONS: "true"

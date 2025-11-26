@@ -1,0 +1,19 @@
+{{- if .Values.services.realTime.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-real-time
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: real-time
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.realTime.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: real-time
+{{- end }}

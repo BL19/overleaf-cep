@@ -1,0 +1,19 @@
+{{- if .Values.services.documentUpdater.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "overleaf.fullname" . }}-document-updater
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: document-updater
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.services.documentUpdater.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "overleaf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: document-updater
+{{- end }}

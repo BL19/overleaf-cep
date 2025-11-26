@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: overleaf-notifications
+  namespace: overleaf
+  labels:
+    app.kubernetes.io/component: notifications
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3042
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: overleaf
+    app.kubernetes.io/component: notifications

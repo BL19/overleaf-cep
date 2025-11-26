@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overleaf-history-v1
+  namespace: overleaf
+  labels:
+    app.kubernetes.io/component: history-v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: overleaf
+      app.kubernetes.io/component: history-v1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: overleaf
+        app.kubernetes.io/component: history-v1
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: history-v1
+          image: sharelatex/sharelatex:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "--expose-gc", "/overleaf/services/history-v1/app.js"]
+          ports:
+            - name: http
+              containerPort: 3100
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: overleaf-config
+          env:
+            - name: LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3100"
+            - name: MONGO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: overleaf-secrets
+                  key: mongodb-url
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: overleaf-secrets
+                  key: redis-password
+                  optional: true
+            - name: V1_HISTORY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: overleaf-secrets
+                  key: web-api-user
+            - name: V1_HISTORY_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: overleaf-secrets
+                  key: web-api-password
+          livenessProbe:
+            httpGet:
+              path: /health_check
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health_check
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/overleaf/data
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: overleaf-data

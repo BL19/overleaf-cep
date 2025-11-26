@@ -1,0 +1,94 @@
+{{- if .Values.services.linkedUrlProxy.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "overleaf.fullname" . }}-linked-url-proxy
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: linked-url-proxy
+spec:
+  replicas: {{ .Values.services.linkedUrlProxy.replicaCount | default .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "overleaf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: linked-url-proxy
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secrets/secrets.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "overleaf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: linked-url-proxy
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "overleaf.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: linked-url-proxy
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: {{ include "overleaf.imageName" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "--expose-gc", "/overleaf/services/linked-url-proxy/app.mjs"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.services.linkedUrlProxy.port }}
+              protocol: TCP
+          env:
+            {{- include "overleaf.commonEnv" . | nindent 12 }}
+            - name: LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.services.linkedUrlProxy.port | quote }}
+            {{- with .Values.services.linkedUrlProxy.env }}
+            {{- range $key, $value := . }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- end }}
+          {{- if .Values.healthCheck.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health_check
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.livenessProbe.failureThreshold }}
+            successThreshold: {{ .Values.healthCheck.livenessProbe.successThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health_check
+              port: http
+            initialDelaySeconds: {{ .Values.healthCheck.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.healthCheck.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.healthCheck.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.healthCheck.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.healthCheck.readinessProbe.successThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.services.linkedUrlProxy.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

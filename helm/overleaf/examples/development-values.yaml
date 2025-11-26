@@ -1,0 +1,189 @@
+# Minimal values for local development
+# This configuration is NOT suitable for production use
+
+overleaf:
+  siteUrl: "http://localhost:8080"
+  appName: "Overleaf Development"
+  adminEmail: "admin@localhost"
+  emailConfirmationDisabled: true
+
+# Use embedded MongoDB
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootUser: root
+    rootPassword: "development-root-password"
+    database: sharelatex
+    username: overleaf
+    password: "development-password"
+  architecture: standalone
+  persistence:
+    enabled: true
+    size: 1Gi
+
+# Use embedded Redis
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "development-redis-password"
+  architecture: standalone
+  master:
+    persistence:
+      enabled: true
+      size: 500Mi
+
+# Disable persistence for faster development
+persistence:
+  enabled: false
+
+# Minimal ingress (use port-forwarding instead)
+ingress:
+  enabled: false
+
+# Single replica for each service
+services:
+  web:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+  
+  realTime:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  
+  documentUpdater:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  
+  clsi:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+  
+  filestore:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  
+  docstore:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  
+  chat:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 25m
+        memory: 64Mi
+  
+  contacts:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 25m
+        memory: 64Mi
+  
+  notifications:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 25m
+        memory: 64Mi
+  
+  projectHistory:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  
+  references:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 25m
+        memory: 64Mi
+  
+  historyV1:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 250m
+        memory: 256Mi
+      requests:
+        cpu: 50m
+        memory: 128Mi
+  
+  linkedUrlProxy:
+    replicaCount: 1
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 25m
+        memory: 64Mi
+
+# Reduced health check thresholds for faster startup
+healthCheck:
+  enabled: true
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 10
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 5

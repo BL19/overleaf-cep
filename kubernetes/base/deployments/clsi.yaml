@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: overleaf-clsi
+  namespace: overleaf
+  labels:
+    app.kubernetes.io/component: clsi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: overleaf
+      app.kubernetes.io/component: clsi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: overleaf
+        app.kubernetes.io/component: clsi
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: clsi
+          image: sharelatex/sharelatex:latest
+          imagePullPolicy: IfNotPresent
+          command: ["node", "--expose-gc", "/overleaf/services/clsi/app.js"]
+          ports:
+            - name: http
+              containerPort: 3013
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: overleaf-config
+          env:
+            - name: LISTEN_ADDRESS
+              value: "0.0.0.0"
+            - name: PORT
+              value: "3013"
+            - name: MONGO_URL
+              valueFrom:
+                secretKeyRef:
+                  name: overleaf-secrets
+                  key: mongodb-url
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: overleaf-secrets
+                  key: redis-password
+                  optional: true
+          livenessProbe:
+            httpGet:
+              path: /health_check
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health_check
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+          volumeMounts:
+            - name: compiles
+              mountPath: /var/lib/overleaf/data/compiles
+            - name: cache
+              mountPath: /var/lib/overleaf/data/cache
+            - name: output
+              mountPath: /var/lib/overleaf/data/output
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+      volumes:
+        - name: compiles
+          persistentVolumeClaim:
+            claimName: overleaf-compiles
+        - name: cache
+          persistentVolumeClaim:
+            claimName: overleaf-cache
+        - name: output
+          emptyDir: {}
