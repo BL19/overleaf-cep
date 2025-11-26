@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "overleaf.fullname" . }}-config
+  labels:
+    {{- include "overleaf.labels" . | nindent 4 }}
+data:
+  OVERLEAF_APP_NAME: {{ .Values.overleaf.appName | quote }}
+  OVERLEAF_SITE_URL: {{ .Values.overleaf.siteUrl | quote }}
+  OVERLEAF_ADMIN_EMAIL: {{ .Values.overleaf.adminEmail | quote }}
+  
+  # MongoDB configuration
+  OVERLEAF_MONGO_URL: {{ include "overleaf.mongoUrl" . | quote }}
+  
+  # Redis configuration
+  OVERLEAF_REDIS_HOST: {{ include "overleaf.redisHost" . | quote }}
+  REDIS_HOST: {{ include "overleaf.redisHost" . | quote }}
+  OVERLEAF_REDIS_PORT: {{ include "overleaf.redisPort" . | quote }}
+  
+  # Feature flags
+  ENABLE_CONVERSIONS: {{ .Values.overleaf.features.enableConversions | quote }}
+  EMAIL_CONFIRMATION_DISABLED: {{ .Values.overleaf.features.emailConfirmationDisabled | quote }}
+  ENABLED_LINKED_FILE_TYPES: {{ .Values.overleaf.features.linkedFileTypes | quote }}
+  
+  # Service URLs (for inter-service communication)
+  WEB_URL: "http://{{ include "overleaf.fullname" . }}-web:{{ .Values.web.port }}"
+  REALTIME_URL: "http://{{ include "overleaf.fullname" . }}-realtime:{{ .Values.realtime.port }}"
+  DOCUMENT_UPDATER_URL: "http://{{ include "overleaf.fullname" . }}-document-updater:{{ .Values.documentUpdater.port }}"
+  CLSI_URL: "http://{{ include "overleaf.fullname" . }}-clsi:{{ .Values.clsi.port }}"
+  FILESTORE_URL: "http://{{ include "overleaf.fullname" . }}-filestore:{{ .Values.filestore.port }}"
+  DOCSTORE_URL: "http://{{ include "overleaf.fullname" . }}-docstore:{{ .Values.docstore.port }}"
+  CHAT_URL: "http://{{ include "overleaf.fullname" . }}-chat:{{ .Values.chat.port }}"
+  CONTACTS_URL: "http://{{ include "overleaf.fullname" . }}-contacts:{{ .Values.contacts.port }}"
+  NOTIFICATIONS_URL: "http://{{ include "overleaf.fullname" . }}-notifications:{{ .Values.notifications.port }}"
+  PROJECT_HISTORY_URL: "http://{{ include "overleaf.fullname" . }}-project-history:{{ .Values.projectHistory.port }}"
+  REFERENCES_URL: "http://{{ include "overleaf.fullname" . }}-references:{{ .Values.references.port }}"
+  HISTORY_V1_URL: "http://{{ include "overleaf.fullname" . }}-history-v1:{{ .Values.historyV1.port }}"
+  LINKED_URL_PROXY_URL: "http://{{ include "overleaf.fullname" . }}-linked-url-proxy:{{ .Values.linkedUrlProxy.port }}"
+  
+  # Sandbox configuration
+  {{- if .Values.sandbox.enabled }}
+  SANDBOXED_COMPILES: "true"
+  SANDBOXED_COMPILES_KUBERNETES: "true"
+  SANDBOX_NAMESPACE: {{ .Values.sandbox.namespace | quote }}
+  SANDBOX_POD_TTL_MINUTES: {{ .Values.sandbox.podTTLMinutes | quote }}
+  SANDBOX_TEXLIVE_IMAGE: {{ .Values.sandbox.texliveImage | quote }}
+  SANDBOX_ALLOWED_IMAGES: {{ .Values.sandbox.allowedImages | join "," | quote }}
+  {{- else }}
+  SANDBOXED_COMPILES: "false"
+  {{- end }}
+  
+  # Node environment
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  
+  # Filestore backend
+  OVERLEAF_FILESTORE_BACKEND: {{ .Values.filestore.backend | quote }}

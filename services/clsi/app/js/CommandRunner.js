@@ -9,7 +9,10 @@ let commandRunnerPath
 const Settings = require('@overleaf/settings')
 const logger = require('@overleaf/logger')
 
-if ((Settings.clsi != null ? Settings.clsi.dockerRunner : undefined) === true) {
+// Check for Kubernetes runner first (for sandboxed compiles on Kubernetes)
+if (process.env.SANDBOXED_COMPILES_KUBERNETES === 'true') {
+  commandRunnerPath = './KubernetesRunner'
+} else if ((Settings.clsi != null ? Settings.clsi.dockerRunner : undefined) === true) {
   commandRunnerPath = './DockerRunner'
 } else {
   commandRunnerPath = './LocalCommandRunner'

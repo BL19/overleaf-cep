@@ -1,0 +1,379 @@
+# Default values for overleaf
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Image settings
+image:
+  registry: docker.io
+  repository: sharelatex/sharelatex
+  tag: "latest"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Application settings
+overleaf:
+  appName: "Overleaf Community Edition"
+  siteUrl: "http://localhost"
+  adminEmail: "admin@example.com"
+  
+  # Session secret - should be overridden in production
+  sessionSecret: ""
+  
+  # Web API credentials
+  webApiUser: "overleaf"
+  webApiPassword: ""
+  
+  # Email settings
+  email:
+    enabled: false
+    fromAddress: ""
+    replyTo: ""
+    smtp:
+      host: ""
+      port: 587
+      secure: false
+      user: ""
+      password: ""
+  
+  # Feature flags
+  features:
+    enableConversions: "true"
+    emailConfirmationDisabled: "true"
+    linkedFileTypes: "project_file,project_output_file"
+
+# Sandboxed compiles configuration
+sandbox:
+  enabled: true
+  # Namespace for sandbox pods
+  namespace: "overleaf-sandbox"
+  # Default TexLive image
+  texliveImage: "texlive/texlive:latest"
+  # List of allowed TexLive images
+  allowedImages:
+    - "texlive/texlive:latest"
+    - "texlive/texlive:TL2024-historic"
+    - "texlive/texlive:TL2023-historic"
+    - "texlive/texlive:TL2022-historic"
+  # Pod TTL in minutes since last recompile
+  podTTLMinutes: 20
+  # Resource limits for sandbox pods
+  resources:
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+  # Security context for sandbox pods
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+
+# Web service configuration
+web:
+  enabled: true
+  replicaCount: 1
+  port: 3000
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podSecurityContext: {}
+  securityContext: {}
+
+# Real-time service configuration
+realtime:
+  enabled: true
+  replicaCount: 1
+  port: 3026
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Document updater service configuration
+documentUpdater:
+  enabled: true
+  replicaCount: 1
+  port: 3003
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# CLSI service configuration
+clsi:
+  enabled: true
+  replicaCount: 1
+  port: 3013
+  resources:
+    limits:
+      cpu: "1"
+      memory: "1Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Filestore service configuration
+filestore:
+  enabled: true
+  replicaCount: 1
+  port: 3009
+  # Backend type: fs or s3
+  backend: "fs"
+  # S3 configuration (only used if backend is s3)
+  s3:
+    accessKeyId: ""
+    secretAccessKey: ""
+    endpoint: ""
+    region: "us-east-1"
+    pathStyle: false
+    buckets:
+      templateFiles: ""
+      projectBlobs: ""
+      globalBlobs: ""
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Docstore service configuration
+docstore:
+  enabled: true
+  replicaCount: 1
+  port: 3016
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Chat service configuration
+chat:
+  enabled: true
+  replicaCount: 1
+  port: 3010
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Contacts service configuration
+contacts:
+  enabled: true
+  replicaCount: 1
+  port: 3036
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Notifications service configuration
+notifications:
+  enabled: true
+  replicaCount: 1
+  port: 3042
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Project history service configuration
+projectHistory:
+  enabled: true
+  replicaCount: 1
+  port: 3054
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# References service configuration
+references:
+  enabled: true
+  replicaCount: 1
+  port: 3040
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# History v1 service configuration
+historyV1:
+  enabled: true
+  replicaCount: 1
+  port: 3100
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Linked URL proxy service configuration
+linkedUrlProxy:
+  enabled: true
+  replicaCount: 1
+  port: 3101
+  resources:
+    limits:
+      cpu: "250m"
+      memory: "256Mi"
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: overleaf.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+
+# Persistent volumes
+persistence:
+  enabled: true
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Data volume for compiles, output, cache
+  data:
+    size: 10Gi
+  # Templates volume
+  templates:
+    size: 1Gi
+  # History volume
+  history:
+    size: 10Gi
+
+# MongoDB configuration (using Bitnami chart)
+mongodb:
+  enabled: true
+  architecture: replicaset
+  replicaCount: 1
+  auth:
+    enabled: false
+  persistence:
+    enabled: true
+    size: 8Gi
+
+# Redis configuration (using Bitnami chart)
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 1Gi
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# RBAC
+rbac:
+  create: true
+
+# Network policies
+networkPolicy:
+  enabled: false
